@@ -9,6 +9,7 @@ namespace AutoScreenshot.Patches
 {
     internal class HighScoreScreenshotPatch
     {
+        private static bool screenshotTaken = false;
 
         [HarmonyPatch(typeof(ResultPlayer))]
         [HarmonyPatch(nameof(ResultPlayer.Update))]
@@ -17,7 +18,7 @@ namespace AutoScreenshot.Patches
         public static bool ResultPlayer_Update_Prefix(ResultPlayer __instance)
         {
             // Later, check to see if it's a record or not
-            if (!Screenshot.screenshotTaken && __instance.State == ResultPlayer.dispState.Wait)
+            if (!screenshotTaken && __instance.State == ResultPlayer.dispState.Wait)
             {
                 var isHighScore = __instance.localResults.ensoPlayerResult[__instance.playerNo].isHiScore;
                 var isSilver = __instance.localResults.ensoPlayerResult[__instance.playerNo].crown == DataConst.CrownType.Silver;
@@ -45,9 +46,9 @@ namespace AutoScreenshot.Patches
                     Screenshot.TakeScreenshot();
                 }
             }
-            else if (Screenshot.screenshotTaken && __instance.State == ResultPlayer.dispState.Start)
+            else if (screenshotTaken && __instance.State == ResultPlayer.dispState.Start)
             {
-                Screenshot.screenshotTaken = false;
+                screenshotTaken = false;
             }
             return true;
         }

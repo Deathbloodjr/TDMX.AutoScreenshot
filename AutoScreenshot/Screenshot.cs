@@ -10,37 +10,33 @@ namespace AutoScreenshot
 {
     public class Screenshot
     {
-        internal static bool screenshotTaken = false;
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="folderPath">The folder path to save screenshots to. Defaults to AutoScreenshot's config if blank.</param>
-        public static void TakeScreenshot(string folderPath = "")
+        /// <param name="fileName">A file name to append to the current date time as the file name.</param>
+        /// <param name="folderPath">The folder to save the screenshot to within the configured Screenshot Folder.</param>
+        public static void TakeScreenshot(string fileName = "", string folderPath = "")
         {
             if (Plugin.Instance.ConfigEnabled.Value)
             {
                 var now = DateTime.Now;
-                string fileName = now.Year.ToString("00") + "-" 
-                                + now.Month.ToString("00") + "-" 
-                                + now.Day.ToString("00") + " " 
-                                + now.Hour.ToString("00") + "-" 
-                                + now.Minute.ToString("00") + "-" 
-                                + now.Second.ToString("00") + ".png";
+                string finalFileName = now.ToString("yyyy-MM-dd HH-mm-ss");
 
-                if (folderPath == "")
+                if (fileName != "")
                 {
-                    folderPath = Plugin.Instance.ConfigScreenshotFolder.Value;
+                    finalFileName += "_" + fileName;
+                }
+                finalFileName += ".png";
+
+                string finalFolderPath = Plugin.Instance.ConfigScreenshotFolder.Value;
+
+                if (folderPath != "")
+                {
+                    finalFolderPath = Path.Combine(finalFolderPath, folderPath);
                 }
 
-                if (!Directory.Exists(folderPath))
+                if (!Directory.Exists(finalFolderPath))
                 {
-                    Directory.CreateDirectory(folderPath);
+                    Directory.CreateDirectory(finalFolderPath);
                 }
-                ScreenCapture.CaptureScreenshot(Path.GetFullPath(Path.Combine(folderPath, fileName)));
-                screenshotTaken = true;
-
-                //Plugin.LogInfo("Screenshot saved to: " + Path.Combine(Plugin.Instance.ConfigScreenshotFolder.Value, fileName));
+                ScreenCapture.CaptureScreenshot(Path.GetFullPath(Path.Combine(finalFolderPath, finalFileName)));
             }
         }
     }

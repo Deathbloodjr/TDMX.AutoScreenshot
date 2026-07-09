@@ -1,28 +1,31 @@
-﻿using BepInEx;
+﻿using AutoScreenshot.Patches;
+using BepInEx;
+using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
+using SaveProfileManager.Patches;
 using System;
 using System.Collections;
-using UnityEngine;
-using BepInEx.Configuration;
-using AutoScreenshot.Patches;
 using System.IO;
+using UnityEngine;
+using System.Reflection;
 
-#if TAIKO_IL2CPP
+
+#if IL2CPP
 using BepInEx.Unity.IL2CPP.Utils;
 using BepInEx.Unity.IL2CPP;
 #endif
 
 namespace AutoScreenshot
 {
-    [BepInPlugin(PluginInfo.PLUGIN_GUID, ModName, PluginInfo.PLUGIN_VERSION)]
-#if TAIKO_MONO
+    [BepInPlugin(MyPluginInfo.PLUGIN_GUID, ModName, MyPluginInfo.PLUGIN_VERSION)]
+#if MONO
     public class Plugin : BaseUnityPlugin
-#elif TAIKO_IL2CPP
+#elif IL2CPP
     public class Plugin : BasePlugin
 #endif
     {
-        const string ModName = "AutoScreenshot";
+        public const string ModName = "AutoScreenshot";
 
         public static Plugin Instance;
         private Harmony _harmony;
@@ -46,121 +49,207 @@ namespace AutoScreenshot
         public ConfigEntry<bool> ConfigLoggingEnabled;
         public ConfigEntry<int> ConfigLoggingDetailLevelEnabled;
 
-#if TAIKO_MONO
+#if MONO
         private void Awake()
-#elif TAIKO_IL2CPP
+#elif IL2CPP
         public override void Load()
 #endif
         {
             Instance = this;
 
-#if TAIKO_MONO
+#if MONO
             Log = Logger;
-#elif TAIKO_IL2CPP
+#elif IL2CPP
             Log = base.Log;
 #endif
 
-            SetupConfig();
+            SetupConfig(Config, Path.Combine("BepInEx", "data", ModName));
             SetupHarmony();
+
+            var isSaveManagerLoaded = IsSaveManagerLoaded();
+            if (isSaveManagerLoaded)
+            {
+                AddToSaveManager();
+            }
         }
 
-        private void SetupConfig()
+        // Any data that's likely to be shared between multiple profiles should use the dataFolder path
+        // Any data that's likely to be specific per profile should use the saveFolder path
+        private void SetupConfig(ConfigFile config, string saveFolder, bool isSaveManager = false)
         {
             var dataFolder = Path.Combine("BepInEx", "data", ModName);
 
-            ConfigEnabled = Config.Bind("General",
-                "Enabled",
-                true,
-                "Enables the mod.");
+            if (!isSaveManager)
+            {
+                ConfigEnabled = config.Bind("General",
+                   "Enabled",
+                   true,
+                   "Enables the mod.");
+            }
 
-            ConfigScreenshotAllPlays = Config.Bind("ScreenshotConditions",
+            // TODO: Fix this awful shit
+            ConfigScreenshotAllPlays = config.Bind("ScreenshotConditions",
                 "ScreenshotAllPlays",
                 false,
                 "Will screenshot every play.");
 
-            ConfigScreenshotAllHighScore = Config.Bind("ScreenshotConditions",
+            ConfigScreenshotAllHighScore = config.Bind("ScreenshotConditions",
                 "ScreenshotAllHighScore",
                 true,
                 "Will screenshot every high score.");
 
-            ConfigScreenshotFirstClear = Config.Bind("ScreenshotConditions",
+            ConfigScreenshotFirstClear = config.Bind("ScreenshotConditions",
                 "ScreenshotFirstClear",
                 true,
                 "Will screenshot the first time you get a silver crown on a song.");
 
-            ConfigScreenshotFirstFC = Config.Bind("ScreenshotConditions",
+            ConfigScreenshotFirstFC = config.Bind("ScreenshotConditions",
                 "ScreenshotFirstFC",
                 true,
                 "Will screenshot the first time you get a gold crown on a song.");
 
-            ConfigScreenshotFirstDFC = Config.Bind("ScreenshotConditions",
+            ConfigScreenshotFirstDFC = config.Bind("ScreenshotConditions",
                 "ScreenshotFirstDFC",
                 true,
                 "Will screenshot the first time you get a rainbow crown on a song.");
 
-            ConfigScreenshotHighScoreClear = Config.Bind("ScreenshotConditions",
+            ConfigScreenshotHighScoreClear = config.Bind("ScreenshotConditions",
                 "ScreenshotHighScoreClear",
                 true,
                 "Will screenshot high scores on silver crowns.");
 
-            ConfigScreenshotHighScoreFC = Config.Bind("ScreenshotConditions",
+            ConfigScreenshotHighScoreFC = config.Bind("ScreenshotConditions",
                 "ScreenshotHighScoreFC",
                 true,
                 "Will screenshot high scores on gold crowns.");
 
-            ConfigScreenshotHighScoreDFC = Config.Bind("ScreenshotConditions",
+            ConfigScreenshotHighScoreDFC = config.Bind("ScreenshotConditions",
                 "ScreenshotHighScoreDFC",
                 true,
                 "Will screenshot high scores on rainbow crowns.");
 
-            ConfigScreenshotAllClear = Config.Bind("ScreenshotConditions",
+            ConfigScreenshotAllClear = config.Bind("ScreenshotConditions",
                 "ScreenshotAllClear",
                 false,
                 "Will screenshot every time you get a silver crown.");
 
-            ConfigScreenshotAllFC = Config.Bind("ScreenshotConditions",
+            ConfigScreenshotAllFC = config.Bind("ScreenshotConditions",
                 "ScreenshotAllFC",
                 false,
                 "Will screenshot every time you get a gold crown.");
 
-            ConfigScreenshotAllDFC = Config.Bind("ScreenshotConditions",
+            ConfigScreenshotAllDFC = config.Bind("ScreenshotConditions",
                 "ScreenshotAllDFC",
                 true,
                 "Will screenshot every time you get a rainbow crown.");
 
 
-            ConfigScreenshotFolder = Config.Bind("General",
+            ConfigScreenshotFolder = config.Bind("General",
                 "ScreenshotFolder",
-                Path.Combine(dataFolder, "Screenshots"),
+                Path.Combine(saveFolder, "Screenshots"),
                 "Enables the example mods.");
-
-
-            ConfigLoggingEnabled = Config.Bind("Debug",
-                "LoggingEnabled",
-                true,
-                "Enables logs to be sent to the console.");
-
-#if DEBUG
-            ConfigLoggingDetailLevelEnabled = Config.Bind("Debug",
-                "LoggingDetailLevelEnabled",
-                0,
-                "Enables more detailed logs to be sent to the console. The higher the number, the more logs will be displayed. Mostly for my own debugging.");
-#endif
         }
 
         private void SetupHarmony()
         {
             // Patch methods
-            _harmony = new Harmony(PluginInfo.PLUGIN_GUID);
+            _harmony = new Harmony(MyPluginInfo.PLUGIN_GUID);
 
-            if (ConfigEnabled.Value)
+            LoadPlugin(ConfigEnabled.Value);
+        }
+
+        // For going from a profile that doesn't have this mod enabled, to a profile that does have this mod enabled
+        // Or, first startup
+        public static void LoadPlugin(bool enabled)
+        {
+            if (enabled)
             {
-                _harmony.PatchAll(typeof(HighScoreScreenshotPatch));
-                Log.LogInfo($"Plugin {PluginInfo.PLUGIN_NAME} is loaded!");
+                bool result = true;
+                // If any PatchFile fails, result will become false
+                result &= Instance.PatchFile(typeof(HighScoreScreenshotPatch));
+                if (result)
+                {
+                    ModLogger.Log($"Plugin {MyPluginInfo.PLUGIN_NAME} is loaded!");
+                }
+                else
+                {
+                    ModLogger.Log($"Plugin {MyPluginInfo.PLUGIN_GUID} failed to load.", LogType.Error);
+                    // Unload this instance of Harmony
+                    Instance._harmony.UnpatchSelf();
+                }
             }
             else
             {
-                Log.LogInfo($"Plugin {PluginInfo.PLUGIN_NAME} is disabled.");
+                ModLogger.Log($"Plugin {MyPluginInfo.PLUGIN_NAME} is disabled.");
+            }
+        }
+
+        private bool PatchFile(Type type)
+        {
+            if (_harmony == null)
+            {
+                _harmony = new Harmony(MyPluginInfo.PLUGIN_GUID);
+            }
+            try
+            {
+                _harmony.PatchAll(type);
+                ModLogger.Log("File patched: " + type.FullName, LogType.Debug);
+                return true;
+            }
+            catch (Exception e)
+            {
+                ModLogger.Log("Failed to patch file: " + type.FullName);
+                ModLogger.Log(e.Message);
+                return false;
+            }
+        }
+
+        // For going from a profile that has this mod enabled, to a profile that doesn't have this mod enabled
+        public static void UnloadPlugin()
+        {
+            Instance._harmony.UnpatchSelf();
+            ModLogger.Log($"Plugin {MyPluginInfo.PLUGIN_NAME} has been unpatched.");
+        }
+
+        // For going from one profile that has this mod enabled, to a different mod that has this mod enabled
+        public static void ReloadPlugin()
+        {
+            // Reloading will always be completely different per mod
+            // You'll want to reload any config file or save data that may be specific per profile
+            // If there's nothing to reload, don't put anything here, and keep it commented in AddToSaveManager
+            //SwapSongLanguagesPatch.InitializeOverrideLanguages();
+            //TaikoSingletonMonoBehaviour<CommonObjects>.Instance.MyDataManager.MusicData.Reload();
+        }
+
+        public void AddToSaveManager()
+        {
+            // Add SaveDataManager dll path to your csproj.user file
+            // https://github.com/Deathbloodjr/TDMX.SaveProfileManager
+            var plugin = new PluginSaveDataInterface(MyPluginInfo.PLUGIN_GUID);
+            plugin.AssignLoadFunction(LoadPlugin);
+            plugin.AssignUnloadFunction(UnloadPlugin);
+
+            // Reloading will always be completely different per mod
+            // You'll want to reload any config file or save data that may be specific per profile
+            // If there's nothing to reload, don't put anything here, and keep it commented in AddToSaveManager
+            //plugin.AssignReloadSaveFunction(ReloadPlugin);
+
+            // Comment this if the only config option is ConfigEnabled
+            plugin.AssignConfigSetupFunction(SetupConfig);
+
+            plugin.AddToManager(ConfigEnabled.Value);
+        }
+
+        private bool IsSaveManagerLoaded()
+        {
+            try
+            {
+                Assembly loadedAssembly = Assembly.Load("com.DB.TDMX.SaveProfileManager");
+                return loadedAssembly != null;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -168,61 +257,11 @@ namespace AutoScreenshot
 
         public void StartCustomCoroutine(IEnumerator enumerator)
         {
-#if TAIKO_MONO
+#if MONO
             GetMonoBehaviour().StartCoroutine(enumerator);
-#elif TAIKO_IL2CPP
+#elif IL2CPP
             GetMonoBehaviour().StartCoroutine(enumerator);
 #endif
         }
-
-        public void LogDebugInstance(string value)
-        {
-#if DEBUG
-            Log.LogInfo("[DEBUG]" + value);
-#endif
-        }
-        public static void LogDebug(string value)
-        {
-            Instance.LogDebugInstance(value);
-        }
-
-        public void LogInfoInstance(string value, int detailLevel = 0)
-        {
-            if (ConfigLoggingEnabled.Value && (ConfigLoggingDetailLevelEnabled.Value >= detailLevel))
-            {
-                Log.LogInfo("[" + detailLevel + "] " + value);
-            }
-        }
-        public static void LogInfo(string value, int detailLevel = 0)
-        {
-            Instance.LogInfoInstance(value, detailLevel);
-        }
-
-
-        public void LogWarningInstance(string value, int detailLevel = 0)
-        {
-            if (ConfigLoggingEnabled.Value && (ConfigLoggingDetailLevelEnabled.Value >= detailLevel))
-            {
-                Log.LogWarning("[" + detailLevel + "] " + value);
-            }
-        }
-        public static void LogWarning(string value, int detailLevel = 0)
-        {
-            Instance.LogWarningInstance(value, detailLevel);
-        }
-
-
-        public void LogErrorInstance(string value, int detailLevel = 0)
-        {
-            if (ConfigLoggingEnabled.Value && (ConfigLoggingDetailLevelEnabled.Value >= detailLevel))
-            {
-                Log.LogError("[" + detailLevel + "] " + value);
-            }
-        }
-        public static void LogError(string value, int detailLevel = 0)
-        {
-            Instance.LogErrorInstance(value, detailLevel);
-        }
-
     }
 }
